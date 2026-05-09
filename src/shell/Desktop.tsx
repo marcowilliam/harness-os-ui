@@ -82,12 +82,16 @@ function AppWindow({ appId }: { appId: AppId }) {
           height: 40,
           borderBottom: '1px solid var(--color-os-border-subtle)',
           background: 'rgba(255,255,255,0.015)',
+          position: 'relative',
+          zIndex: 20,
         }}
       >
         {/* Traffic lights */}
         <div className="traffic-lights shrink-0">
           <button
+            type="button"
             className="traffic-light traffic-light-close"
+            style={{ pointerEvents: 'auto' }}
             onClick={(e) => { e.stopPropagation(); closeApp(appId); }}
             title="Close"
           />
