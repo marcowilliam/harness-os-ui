@@ -60,40 +60,56 @@ export function KnowledgeApp() {
 
   return (
     <div className="flex h-full text-sm">
-      {/* Sidebar — domains */}
+      {/* Sidebar — domains grouped by type */}
       <div className="w-48 shrink-0 os-scroll border-r"
         style={{ borderColor: 'var(--color-os-border-subtle)', background: 'var(--color-os-bg)' }}>
-        <div className="p-2 space-y-0.5">
+        <div className="p-2">
           <button
             onClick={() => setSelectedDomain(null)}
-            className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors"
+            className="w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors mb-2"
             style={{
               background: !selectedDomain ? 'var(--color-kernel-soft)' : 'transparent',
               color: !selectedDomain ? 'var(--color-kernel)' : 'var(--color-os-text-secondary)',
             }}>
             All Domains
           </button>
-          {domains.map(d => {
-            const type = getHarnessType(d.domain);
-            const typeInfo = harnessTypes[type];
-            return (
-              <button
-                key={d.domain}
-                onClick={() => setSelectedDomain(d.domain)}
-                className="w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors"
-                style={{
-                  background: selectedDomain === d.domain ? 'var(--color-os-panel-raised)' : 'transparent',
-                  color: selectedDomain === d.domain ? 'var(--color-os-text)' : 'var(--color-os-text-secondary)',
-                }}>
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: typeInfo.color }} />
-                <span className="truncate">{d.domain}</span>
-                <span className="ml-auto shrink-0 text-[10px]"
-                  style={{ color: 'var(--color-os-text-muted)' }}>
-                  {d.chunkCount}
-                </span>
-              </button>
-            );
-          })}
+
+          {(['build', 'product', 'operations', 'domain'] as const)
+            .map(type => {
+              const typeInfo = harnessTypes[type];
+              const typeDomains = domains.filter(d => getHarnessType(d.domain) === type);
+              if (!typeDomains.length) return null;
+              return (
+                <div key={type} className="mb-3">
+                  <div className="flex items-center gap-1.5 px-2 mb-1">
+                    <div className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: typeInfo.color }} />
+                    <span className="text-[9px] font-semibold uppercase tracking-wider"
+                      style={{ color: typeInfo.color }}>
+                      {typeInfo.label}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {typeDomains.map(d => (
+                      <button
+                        key={d.domain}
+                        onClick={() => setSelectedDomain(d.domain)}
+                        className="w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors"
+                        style={{
+                          background: selectedDomain === d.domain ? 'var(--color-os-panel-raised)' : 'transparent',
+                          color: selectedDomain === d.domain ? 'var(--color-os-text)' : 'var(--color-os-text-secondary)',
+                        }}>
+                        <span className="truncate">{d.domain}</span>
+                        <span className="ml-auto shrink-0 text-[10px]"
+                          style={{ color: 'var(--color-os-text-muted)' }}>
+                          {d.chunkCount}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
         </div>
       </div>
 
