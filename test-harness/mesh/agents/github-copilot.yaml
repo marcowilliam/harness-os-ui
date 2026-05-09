@@ -1,0 +1,42 @@
+slug: github-copilot
+name: GitHub Copilot
+type: inner-harness
+status: active
+surface: mcp
+editor: vscode
+capabilities:
+  - code-completion
+  - code-review
+  - knowledge-indexing
+  - session-management
+tools:
+  - get_knowledge
+  - add_knowledge
+  - search_knowledge
+  - get_knowledge_by_domain
+  - get_rules
+  - get_workflow
+  - log_decision
+  - log_learning
+  - start_session
+  - end_session
+access:
+  level: inner-harness
+  read:
+    domains: "*"
+    concerns: "*"
+    cognitive_layer: true
+  write:
+    domains:
+      - architecture
+      - conventions
+      - dev-workflow
+    cognitive_layer: true
+  sudo:
+    enabled: true
+    requires_decision: true
+    allowed_ops:
+      - promote_learning_to_rule
+      - sync_push
+notes: "Primary inner harness at work. Connects via MCP extension in VS Code. Full cognitive layer access — logs decisions and learnings during sessions."
+lastSeen: "2026-05-09"

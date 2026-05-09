@@ -1,0 +1,67 @@
+version: 2
+distribution: company.os
+description: Work distribution — software engineering at company, data sovereignty enforced
+kernel: harness.os
+scale: 1
+
+brand:
+  primary: '#2d8a5e'
+  background: '#0d1f1a'
+  panel: '#1a312c'
+  accent: '#38a352'
+
+projects:
+  - slug: job
+    name: Company Work
+    mode: work
+    domains:
+      - architecture
+      - domain-model
+      - conventions
+      - dev-workflow
+      - business-logic
+      - features
+      - testing
+
+sync:
+  metadata: always
+  session_stats: always
+  concern_tags: always
+  learnings: configurable
+  decisions: title_only
+  knowledge: never
+  rules: never
+  source_code: never
+
+# Progressive Distribution — active capabilities
+capabilities:
+  active:
+    - list
+    - get
+    - search
+    - add
+    - log_decision
+    - log_learning
+    - start_session
+    - end_session
+    - health
+    - stats
+    - concern_matrix
+    - help
+
+  # Held in cognitive system — activate when the signal fires
+  available:
+    - capability: db_driver
+      signal: search is slow or querying across 50+ chunks
+    - capability: mount_github
+      signal: copy-pasting GitHub issues or PRs into knowledge files
+    - capability: mount_jira
+      signal: manually transcribing Jira tickets into session notes
+    - capability: mount_slack
+      signal: manually copying Slack threads into learnings
+    - capability: chown_access_control
+      signal: a second team member needs access to company.os
+    - capability: team_sync
+      signal: team.os distributions need to share knowledge with company.os
+    - capability: scheduled_audit
+      signal: knowledge goes stale between team reviews

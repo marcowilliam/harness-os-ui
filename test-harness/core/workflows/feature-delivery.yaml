@@ -1,0 +1,24 @@
+slug: feature-delivery
+name: Feature Delivery
+type: build
+status: active
+triggers: [new feature, implementing, ticket, story]
+steps:
+  - order: 1
+    name: Context load
+    instruction: Load the feature ticket, check the domain model knowledge for affected entities, read the relevant bounded context boundaries.
+  - order: 2
+    name: Design review
+    instruction: Sketch the API surface and data changes. If schema migration required, flag it — migrations need DBA review before implementation starts.
+  - order: 3
+    name: Test-first
+    instruction: Write integration tests first that define the expected behavior. Unit tests for any new domain logic. Tests must fail before implementation.
+  - order: 4
+    name: Implement
+    instruction: Code the feature. Follow TypeScript standards. Keep PR under 400 lines.
+  - order: 5
+    name: PR
+    instruction: Open PR with ticket reference in title. Ensure CI passes. Request review from domain owner.
+  - order: 6
+    name: Handoff
+    instruction: Log any decisions made (API design choices, schema tradeoffs). Log any learnings (patterns discovered, gotchas found).

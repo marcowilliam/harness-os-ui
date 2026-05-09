@@ -1,0 +1,21 @@
+slug: incident-response
+name: Incident Response
+type: operations
+status: active
+triggers: [incident, outage, bug, production, pagerduty, alert]
+steps:
+  - order: 1
+    name: Triage
+    instruction: Determine severity (P1 = revenue impact or data loss, P2 = degraded service, P3 = cosmetic). Page on-call lead for P1/P2.
+  - order: 2
+    name: Contain
+    instruction: Stop the bleeding first. Feature flags off, rollback if available, circuit breaker if partial. Don't fix root cause under pressure.
+  - order: 3
+    name: Communicate
+    instruction: Post status update in #incidents within 10 min of P1 declaration. Update every 30 min until resolved.
+  - order: 4
+    name: Resolve
+    instruction: Fix root cause in a proper PR — no direct prod pushes. Get a review even under pressure.
+  - order: 5
+    name: Post-mortem
+    instruction: Blameless post-mortem within 48h for P1/P2. Document timeline, root cause, contributing factors, and action items in Confluence.

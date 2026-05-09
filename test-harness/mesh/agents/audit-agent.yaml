@@ -1,0 +1,31 @@
+slug: audit-agent
+name: Audit Agent
+type: governance
+status: active
+surface: mcp
+capabilities:
+  - audit-trail
+  - session-tracking
+  - decision-review
+tools:
+  - govern_audit_decisions
+  - govern_audit_handoffs
+  - govern_audit_knowledge
+  - health_check
+access:
+  level: specialized
+  read:
+    domains:
+      - conventions
+      - architecture
+    concerns:
+      - governance
+      - security
+    cognitive_layer: true
+  write:
+    domains: []
+    cognitive_layer: false
+  sudo:
+    enabled: false
+notes: "Governance-scoped read-only agent. Audits decisions and handoffs. Cannot write to cognitive layer — read and report only."
+lastSeen: "2026-05-09"

@@ -1,0 +1,51 @@
+{
+  "name": "harness-os-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"tsx server/index.ts\" \"vite\"",
+    "dev:mock": "concurrently \"tsx server/index.ts\" \"vite\"",
+    "dev:company": "HARNESS_PATH=../distributions/company.os concurrently \"tsx server/index.ts\" \"vite\"",
+    "dev:marco": "HARNESS_PATH=../distributions/marco.os PORT=3002 VITE_API_PORT=3002 VITE_PORT=5174 concurrently \"tsx server/index.ts\" \"vite\"",
+    "dev:both": "concurrently \"npm run dev:company\" \"npm run dev:marco\"",
+    "dev:ui": "vite",
+    "dev:server": "tsx server/index.ts",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@tanstack/react-query": "^5.100.9",
+    "concurrently": "^9.2.1",
+    "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.15.0",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.1",
+    "chokidar": "^5.0.0",
+    "cors": "^2.8.6",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "express": "^5.2.1",
+    "globals": "^17.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "ws": "^8.20.0"
+  }
+}

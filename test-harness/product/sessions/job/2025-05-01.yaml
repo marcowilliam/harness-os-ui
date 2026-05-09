@@ -1,0 +1,21 @@
+slug: 2025-05-01
+project: job
+date: "2025-05-01"
+summary: Implemented subscription pause feature end-to-end. State machine updated, billing proration logic added, API endpoints live. PR merged to main after two review rounds.
+workCompleted:
+  - Added `paused` state to subscription state machine
+  - Implemented proration logic for mid-cycle pauses
+  - Added PATCH /subscriptions/:id/pause and /resume endpoints
+  - Integration tests covering full pause-resume lifecycle
+  - Updated domain model knowledge with pause state rules
+decisionsLogged: 1
+learningsLogged: 0
+toolCalls: 47
+startedAt: "2025-05-01T09:15:00Z"
+endedAt: "2025-05-01T17:40:00Z"
+nextSteps:
+  - Add pause to billing portal UI (frontend ticket PAY-521)
+  - Write migration for existing subscriptions to add pause_history column
+  - Check that webhook events fire correctly on resume
+openQuestions:
+  - Should paused subscriptions count toward seat limits for the org? Currently they do — product needs to decide.

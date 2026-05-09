@@ -1,0 +1,17 @@
+slug: 2025-04-28
+project: job
+date: "2025-04-28"
+summary: Investigated and fixed the double-notification bug reported in #bugs. Root cause was missing idempotency check on the notification consumer. Also reviewed the notification system feature map and updated it with webhook delivery status.
+workCompleted:
+  - Identified root cause of double notifications (no idempotency on consumer)
+  - Added idempotency key check using Redis SET NX
+  - Wrote regression test for duplicate event delivery
+  - Updated notification-system.md with webhook delivery guarantees section
+decisionsLogged: 0
+learningsLogged: 1
+toolCalls: 31
+startedAt: "2025-04-28T14:00:00Z"
+endedAt: "2025-04-28T18:30:00Z"
+nextSteps:
+  - Apply same idempotency pattern to the billing event consumer (same risk exists there)
+  - Deploy fix to staging and verify with manual test
