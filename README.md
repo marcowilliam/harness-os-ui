@@ -1,73 +1,55 @@
-# React + TypeScript + Vite
+# harness-os-ui
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The OS desktop environment for harness.os — a React app that runs in the browser and presents a real OS experience connected to a local distribution.
 
-Currently, two official plugins are available:
+## What it is
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Shell**: Desktop with floating panels, Dock, Tray, Boot sequence, Notifications
+- **Apps**: Knowledge Manager, Session Monitor, Cortex (learnings + decisions), Terminal (CLI), Agents, Settings, Theory
+- **Server**: Express + WebSocket + chokidar watching `HARNESS_PATH` for live updates
+- **test-harness/**: Mock company.os distribution — 9 knowledge chunks, 2 rules, 2 workflows, 3 agents, 3 decisions, 3 learnings
 
-## React Compiler
+## Quick start (company machine — test distribution)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# 1. Clone and install
+git clone https://github.com/marcowilliam/harness-os-ui.git
+cd harness-os-ui
+npm install
 
-## Expanding the ESLint configuration
+# 2. Start the server (uses test-harness/ as the distribution)
+HARNESS_PATH=./test-harness npx tsx server/index.ts
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# 3. In a separate terminal, start the UI
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open http://localhost:5173 — you'll see the company.os distribution (dark green brand).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Running against a real distribution
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+# Point HARNESS_PATH at your actual distribution
+HARNESS_PATH=/path/to/your/company.os npx tsx server/index.ts
 ```
+
+## Project structure
+
+```
+server/          # Express + WebSocket server
+src/
+  shell/         # OS shell: Desktop, Dock, Tray, Notifications, Boot
+  apps/          # Individual OS apps (knowledge, sessions, cortex, terminal, agents, settings, theory)
+  api/           # TanStack Query hooks + WebSocket client
+  lib/           # types.ts, design-system.ts
+  store.ts       # Zustand global OS state
+test-harness/    # Mock company.os distribution (safe for git, no real data)
+```
+
+## Distribution brand
+
+The UI adapts to each distribution via CSS variables read from the server's `HARNESS_PATH/harness.yaml`. The `brand` section sets the color scheme — company.os uses dark green, marco.os uses indigo.
+
+## Tech
+
+React 19 · Vite · TypeScript · Tailwind CSS v4 · TanStack Query · Zustand · Express · chokidar
