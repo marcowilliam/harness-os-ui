@@ -157,8 +157,64 @@ function helpFilesystemMap(): TerminalLine[] {
   ];
 }
 
+function helpOsDefinition(): TerminalLine[] {
+  const L = 22;
+  return [
+    { type: 'header', text: 'harness.os — what it is' },
+    blank(),
+
+    // ── Stack ─────────────────────────────────────────────────────────────
+    section('THE STACK'),
+    { type: 'row', sig: `  ${'kernel'.padEnd(L)}`, text: 'harness.os — 4 knowledge types, 5 cross-cutting concerns, MCP tools' },
+    { type: 'row', sig: `  ${'OS'.padEnd(L)}`,     text: 'kernel + tools + cognitive layer (the full operating system)' },
+    { type: 'row', sig: `  ${'distribution'.padEnd(L)}`, text: 'your installed instance — marco.os, estateably.os, acme.os' },
+    blank(),
+
+    // ── 4 Types ───────────────────────────────────────────────────────────
+    section('4 KNOWLEDGE TYPES'),
+    { type: 'row', sig: `  ${'build'.padEnd(L)}`,      text: 'how you make things — architecture, conventions, dev workflow, tooling' },
+    { type: 'row', sig: `  ${'product'.padEnd(L)}`,    text: 'what you ship — features, domain model, business logic, roadmap' },
+    { type: 'row', sig: `  ${'operations'.padEnd(L)}`, text: 'how the system runs — infra, processes, legal, finance' },
+    { type: 'row', sig: `  ${'domain'.padEnd(L)}`,     text: 'who your users are and how your world works' },
+    blank(),
+
+    // ── 5 Concerns ────────────────────────────────────────────────────────
+    section('5 CROSS-CUTTING CONCERNS'),
+    { type: 'row', sig: `  ${'relational'.padEnd(L)}`,    text: 'how things connect and depend on each other' },
+    { type: 'row', sig: `  ${'governance'.padEnd(L)}`,    text: 'enforcement — rules that cannot be broken  [= sudo]' },
+    { type: 'row', sig: `  ${'causal'.padEnd(L)}`,        text: 'why things happen — decisions, consequences, tradeoffs' },
+    { type: 'row', sig: `  ${'metacognitive'.padEnd(L)}`, text: 'patterns about how you think and work' },
+    { type: 'row', sig: `  ${'security'.padEnd(L)}`,      text: 'trust boundaries, access, and exposure' },
+    blank(),
+
+    // ── Cognitive Layer ───────────────────────────────────────────────────
+    section('COGNITIVE LAYER  — no Linux equivalent'),
+    { type: 'output', text: `  Learnings    transferable patterns that compound across sessions` },
+    { type: 'output', text: `  Decisions    choices with rationale — the OS remembers why` },
+    { type: 'output', text: `  Concerns     cross-cutting tags that route knowledge to the right actor` },
+    { type: 'output', text: `  Handoffs     session-to-session context transfer (like IPC, but for cognition)` },
+    blank(),
+
+    // ── Analogy ───────────────────────────────────────────────────────────
+    section('THE CORE ANALOGY'),
+    { type: 'output', text: `  Linux:      "everything is a file"` },
+    { type: 'output', text: `  harness.os: "everything is knowledge"` },
+    blank(),
+    { type: 'output', text: `  Linux filesystem → knowledge store` },
+    { type: 'output', text: `  cat / ls / find  → get / list / search` },
+    { type: 'output', text: `  /etc (config)    → rules` },
+    { type: 'output', text: `  /usr/bin (progs) → workflows` },
+    { type: 'output', text: `  kernel syscalls  → MCP tools` },
+    { type: 'output', text: `  distributions    → marco.os, estateably.os` },
+    { type: 'output', text: `  ↓ below this line Linux stops, harness.os continues ↓` },
+    { type: 'output', text: `  learnings / decisions / concern matrix / handoff` },
+    blank(),
+  ];
+}
+
 async function handleHelp(args: string[], dist: string): Promise<TerminalLine[]> {
-  if (args.includes('--filesystem-map')) return helpFilesystemMap();
+  if (args.includes('--filesystem-map'))  return helpFilesystemMap();
+  if (args.includes('--os-definition'))   return helpOsDefinition();
 
   return [
     { type: 'header', text: dist },
@@ -207,7 +263,8 @@ async function handleHelp(args: string[], dist: string): Promise<TerminalLine[]>
     row('health',                         'server connection and response time'),
     row('config',                         'HARNESS_PATH, capabilities, env vars'),
     row('clear',                          'clear the terminal'),
-    row('help --filesystem-map',          'show linux ↔ harness.os mapping table'),
+    row('help --filesystem-map',          'linux ↔ harness.os mapping table'),
+    row('help --os-definition',           'OS layers, types, concerns, cognitive layer'),
     blank(),
   ];
 }
