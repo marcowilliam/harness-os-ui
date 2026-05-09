@@ -41,7 +41,7 @@ export function getHarnessType(domain: string): HarnessType {
 export const osAppDock = [
   { id: 'knowledge', label: 'Knowledge', icon: 'knowledge' },
   { id: 'sessions',  label: 'Sessions',  icon: 'sessions'  },
-  { id: 'cortex',    label: 'Cortex',    icon: 'cortex'    },
+  { id: 'cortex',    label: 'Cognitive',   icon: 'cortex'    },
   { id: 'terminal',  label: 'Terminal',  icon: 'terminal'  },
   { id: 'agents',    label: 'Agents',    icon: 'agents'    },
   { id: 'settings',  label: 'Settings',  icon: 'settings'  },

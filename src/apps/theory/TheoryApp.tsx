@@ -13,7 +13,7 @@ const OS_LAYERS = [
   },
   {
     label: 'Distribution', name: '[name].os',
-    desc: 'Your installed instance — knowledge, rules, workflows, agents. marco.os / company.os.',
+    desc: 'Your installed instance — knowledge, rules, workflows, agents. marco.os / estateably.os.',
     color: '#a855f7',
   },
   {

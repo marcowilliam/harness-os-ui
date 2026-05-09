@@ -1,6 +1,6 @@
 version: 2
-distribution: company.os
-description: Work distribution — software engineering at company, data sovereignty enforced
+distribution: estateably.os
+description: Work distribution — software engineering at Estateably, data sovereignty enforced
 kernel: harness.os
 scale: 1
 
@@ -12,7 +12,7 @@ brand:
 
 projects:
   - slug: job
-    name: Company Work
+    name: Estateably
     mode: work
     domains:
       - architecture
@@ -60,8 +60,8 @@ capabilities:
     - capability: mount_slack
       signal: manually copying Slack threads into learnings
     - capability: chown_access_control
-      signal: a second team member needs access to company.os
+      signal: a second team member needs access to estateably.os
     - capability: team_sync
-      signal: team.os distributions need to share knowledge with company.os
+      signal: team.os distributions need to share knowledge with estateably.os
     - capability: scheduled_audit
       signal: knowledge goes stale between team reviews

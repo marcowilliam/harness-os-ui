@@ -203,7 +203,7 @@ function SyncPanel() {
             <span style={{ color: 'var(--color-os-text-muted)' }}>⟷</span>
           </div>
           <div className="os-panel-raised p-3 rounded-xl text-xs space-y-1">
-            <p className="font-mono" style={{ color: 'var(--color-cortex)' }}>company.os</p>
+            <p className="font-mono" style={{ color: 'var(--color-os-text-secondary)' }}>estateably.os</p>
             <p style={{ color: 'var(--color-os-text-muted)' }}>Work machine</p>
           </div>
         </div>
@@ -245,6 +245,17 @@ export function CortexApp() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-4 pt-3 pb-0 shrink-0">
+        <div className="flex items-baseline gap-2 mb-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest"
+            style={{ color: 'var(--color-cortex)' }}>cognitive layer</span>
+          <span className="text-[10px]" style={{ color: 'var(--color-os-text-muted)' }}>
+            — what no computing OS has
+          </span>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex items-center gap-1 px-3 py-2 border-b shrink-0"
         style={{ borderColor: 'var(--color-os-border-subtle)' }}>
@@ -256,7 +267,7 @@ export function CortexApp() {
               background: tab === t ? 'var(--color-kernel-soft)' : 'transparent',
               color: tab === t ? 'var(--color-kernel)' : 'var(--color-os-text-muted)',
             }}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'learnings' ? 'Learnings' : t === 'decisions' ? 'Decisions' : 'Sync'}
           </button>
         ))}
       </div>

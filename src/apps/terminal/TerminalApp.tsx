@@ -2,34 +2,34 @@ import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../store';
 
 interface TerminalLine {
-  type: 'input' | 'output' | 'error' | 'system' | 'header' | 'divider';
+  type: 'input' | 'output' | 'error' | 'system' | 'header' | 'divider' | 'row' | 'flag' | 'md-code';
   text: string;
+  sig?: string;  // for 'row': bright left column; text = dim right column
 }
 
 // ── Command metadata ───────────────────────────────────────────────────────
 
-const OS_COMMANDS: Array<{ cmd: string; linux: string; desc: string }> = [
-  { cmd: 'list [domain]',                linux: 'ls',     desc: 'list knowledge domains or chunks' },
-  { cmd: 'get {domain}/{slug}',          linux: 'cat',    desc: 'read a specific knowledge chunk' },
-  { cmd: 'search {query}',              linux: 'find',   desc: 'search knowledge by query' },
-  { cmd: 'info',                         linux: 'whoami', desc: 'distribution and actor info' },
-  { cmd: 'context',                      linux: 'pwd',    desc: 'current session context' },
-  { cmd: 'stats',                        linux: 'df',     desc: 'knowledge counts by domain' },
-  { cmd: 'health',                       linux: 'ping',   desc: 'system health check' },
-  { cmd: 'config',                       linux: 'env',    desc: 'distribution configuration' },
-  { cmd: 'list sessions [project]',      linux: 'ps',     desc: 'session list' },
-  { cmd: 'list agents',                  linux: 'ls',     desc: 'registered mesh agents' },
-  { cmd: 'list rules',                   linux: 'ls /etc', desc: 'active system rules' },
-  { cmd: 'list workflows',               linux: 'ls /bin', desc: 'installed workflows' },
+const FILESYSTEM_MAP: Array<{ cmd: string; linux: string; layer: string }> = [
+  { cmd: 'list [DOMAIN]',           linux: 'ls',           layer: 'OS'    },
+  { cmd: 'get DOMAIN/SLUG',         linux: 'cat',          layer: 'OS'    },
+  { cmd: 'search QUERY',            linux: 'find/grep',    layer: 'OS'    },
+  { cmd: 'stats',                   linux: 'df',           layer: 'OS'    },
+  { cmd: 'list rules',              linux: 'ls /etc',      layer: 'OS'    },
+  { cmd: 'list workflows',          linux: 'ls /usr/bin',  layer: 'OS'    },
+  { cmd: 'list agents',             linux: 'ps -u',        layer: 'distro'},
+  { cmd: 'list sessions PROJECT',   linux: 'last',         layer: 'OS'    },
+  { cmd: 'context',                 linux: 'pwd/env',      layer: 'OS'    },
+  { cmd: 'info',                    linux: 'whoami',       layer: 'OS'    },
+  { cmd: 'health',                  linux: 'ping',         layer: 'OS'    },
+  { cmd: 'config',                  linux: 'sysctl -a',    layer: 'OS'    },
+  { cmd: 'handoff [PROJECT]',       linux: 'ipc/pipe',     layer: 'OS'    },
 ];
 
-const CORTEX_COMMANDS: Array<{ cmd: string; desc: string; sudo?: boolean }> = [
-  { cmd: 'log decision "{title}"',       desc: 'record a decision with rationale' },
-  { cmd: 'log learning "{title}"',       desc: 'capture a transferable pattern' },
-  { cmd: 'concern matrix',               desc: 'concern coverage across all knowledge' },
-  { cmd: 'handoff [project]',            desc: 'latest session summary' },
-  { cmd: 'promote learning {slug}',      desc: 'promote learning to rule', sudo: true },
-  { cmd: 'remove knowledge {d}/{s}',     desc: 'remove a knowledge chunk', sudo: true },
+const CORTEX_MAP: Array<{ cmd: string }> = [
+  { cmd: 'log decision TITLE [--rationale TEXT] [--project SLUG]' },
+  { cmd: 'log learning TITLE [--content TEXT]' },
+  { cmd: 'concern matrix' },
+  { cmd: 'promote learning SLUG' },
 ];
 
 const ALL_COMMAND_NAMES = [
@@ -59,37 +59,156 @@ function flagValue(tokens: string[], flag: string): string {
   return idx !== -1 && tokens[idx + 1] ? tokens[idx + 1] : '';
 }
 
+// ── Markdown → TerminalLine parser ────────────────────────────────────────
+
+function parseMarkdown(md: string): TerminalLine[] {
+  const lines = md.split('\n');
+  const out: TerminalLine[] = [];
+  let inCode = false;
+
+  for (const raw of lines) {
+    // fenced code block toggle
+    if (raw.trimStart().startsWith('```')) {
+      inCode = !inCode;
+      if (inCode) out.push({ type: 'output', text: '' }); // opening gap
+      continue;
+    }
+    if (inCode) {
+      out.push({ type: 'md-code', text: `  ${raw}` } as unknown as TerminalLine);
+      continue;
+    }
+
+    // blank line → small spacer
+    if (!raw.trim()) { out.push({ type: 'divider', text: '' }); continue; }
+
+    // headings
+    const h1 = raw.match(/^#{1,2}\s+(.*)/);
+    if (h1) { out.push({ type: 'header', text: h1[1] }); continue; }
+    const h3 = raw.match(/^#{3,}\s+(.*)/);
+    if (h3) { out.push({ type: 'system', text: h3[1] }); continue; }
+
+    // bullet list
+    const bullet = raw.match(/^(\s*)[-*+]\s+(.*)/);
+    if (bullet) {
+      const indent = bullet[1].length > 0 ? '    ' : '  ';
+      const text = bullet[2].replace(/\*\*(.*?)\*\*/g, '$1').replace(/`(.*?)`/g, '$1');
+      out.push({ type: 'output', text: `${indent}· ${text}` }); continue;
+    }
+
+    // numbered list
+    const num = raw.match(/^(\s*)\d+\.\s+(.*)/);
+    if (num) {
+      const text = num[2].replace(/\*\*(.*?)\*\*/g, '$1').replace(/`(.*?)`/g, '$1');
+      out.push({ type: 'output', text: `  ${text}` }); continue;
+    }
+
+    // strip inline markdown for paragraph text — keep it readable
+    const clean = raw
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`(.*?)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    out.push({ type: 'output', text: clean });
+  }
+  return out;
+}
+
 // ── Command handlers ───────────────────────────────────────────────────────
 
-async function handleHelp(target: string, dist: string): Promise<TerminalLine[]> {
-  if (target) {
-    const found = [...OS_COMMANDS, ...CORTEX_COMMANDS].find(c =>
-      c.cmd.startsWith(target)
-    );
-    if (found) {
-      return [
-        { type: 'system', text: found.cmd },
-        { type: 'output', text: `  ${'linux' in found ? `Linux: ${found.linux}` : 'Cognitive Layer — no OS equivalent'}` },
-        { type: 'output', text: `  ${found.desc}` },
-      ];
-    }
-    return [{ type: 'error', text: `No help for "${target}"` }];
-  }
+const W1 = 36;
+// Two-tone row: sig is bright, desc is muted — rendered as two spans
+function row(sig: string, desc: string): TerminalLine {
+  return { type: 'row', sig: `  ${sig}`, text: desc };
+}
+// Indented flag continuation — even more muted
+function flag(sig: string, desc: string): TerminalLine {
+  return { type: 'flag', sig: `    ${sig}`, text: desc };
+}
+function section(label: string): TerminalLine {
+  return { type: 'system', text: label };
+}
+function blank(): TerminalLine {
+  return { type: 'divider', text: '' };
+}
+
+function helpFilesystemMap(): TerminalLine[] {
+  const C1 = 32, C2 = 16;
+  const rule = `  ${'─'.repeat(C1)}  ${'─'.repeat(C2)}  ${'─'.repeat(7)}`;
+  return [
+    { type: 'header', text: 'filesystem map' },
+    blank(),
+    // Column header as a system line
+    { type: 'system', text: `  ${'harness.os command'.padEnd(C1)}  ${'linux'.padEnd(C2)}  layer` },
+    { type: 'output', text: rule },
+    ...FILESYSTEM_MAP.map(r => ({
+      type: 'row' as const,
+      sig: `  ${r.cmd.padEnd(C1)}`,
+      text: `  ${r.linux.padEnd(C2)}  ${r.layer}`,
+    })),
+    { type: 'output', text: rule },
+    { type: 'system', text: `  ${'cognitive layer'.padEnd(C1)}  ${'—'.padEnd(C2)}  cortex` },
+    { type: 'output', text: rule },
+    ...CORTEX_MAP.map(r => ({
+      type: 'row' as const,
+      sig: `  ${r.cmd.padEnd(C1)}`,
+      text: `  ${'—'.padEnd(C2)}  cortex`,
+    })),
+    blank(),
+  ];
+}
+
+async function handleHelp(args: string[], dist: string): Promise<TerminalLine[]> {
+  if (args.includes('--filesystem-map')) return helpFilesystemMap();
 
   return [
-    { type: 'header', text: `${dist} ~ harness.os terminal` },
-    { type: 'divider', text: '' },
-    { type: 'system', text: 'FILESYSTEM COMMANDS  (maps to Linux)' },
-    ...OS_COMMANDS.map(c => ({
-      type: 'output' as const,
-      text: `  ${c.cmd.padEnd(32)} ${c.linux.padEnd(10)} ${c.desc}`,
-    })),
-    { type: 'divider', text: '' },
-    { type: 'system', text: 'COGNITIVE LAYER  (no OS equivalent — this is the cortex)' },
-    ...CORTEX_COMMANDS.map(c => ({
-      type: 'output' as const,
-      text: `  ${c.cmd.padEnd(32)} ${c.sudo ? '[sudo] ' : '       '}${c.desc}`,
-    })),
+    { type: 'header', text: dist },
+    blank(),
+
+    // ── Notation key ──────────────────────────────────────────────────────
+    { type: 'output', text: `  UPPER   required argument` },
+    { type: 'output', text: `  [word]  optional argument` },
+    { type: 'output', text: `  --flag  flag (may take a value)` },
+    blank(),
+
+    // ── Knowledge ─────────────────────────────────────────────────────────
+    section('KNOWLEDGE'),
+    row('list',                           'list all knowledge domains'),
+    row('list DOMAIN',                    'list chunks inside a domain'),
+    row('get DOMAIN/SLUG',                'read a knowledge chunk'),
+    row('search QUERY',                   'search all knowledge'),
+    row('search QUERY --domain DOMAIN',   'search within one domain'),
+    row('stats',                          'chunk counts by domain and type'),
+    blank(),
+
+    // ── Cognitive Layer ───────────────────────────────────────────────────
+    section('COGNITIVE LAYER'),
+    row('log decision TITLE',             'record a decision'),
+    flag('--rationale TEXT',              'add rationale inline'),
+    flag('--project SLUG',               'associate with a project  [default: general]'),
+    row('log learning TITLE',             'capture a transferable pattern'),
+    flag('--content TEXT',               'add content inline'),
+    row('concern matrix',                 'coverage across the 5 cross-cutting concerns'),
+    row('handoff [PROJECT]',              'latest session summary'),
+    row('promote learning SLUG',          'elevate a learning to a rule  [sudo]'),
+    blank(),
+
+    // ── Session & Mesh ────────────────────────────────────────────────────
+    section('SESSION & MESH'),
+    row('list sessions PROJECT',          'session history for a project'),
+    row('list agents',                    'registered mesh agents'),
+    row('list rules',                     'active rules'),
+    row('list workflows',                 'installed workflows'),
+    row('context',                        'active distribution, projects, scale'),
+    blank(),
+
+    // ── System ────────────────────────────────────────────────────────────
+    section('SYSTEM'),
+    row('info',                           'distribution name, actor, scale tier'),
+    row('health',                         'server connection and response time'),
+    row('config',                         'HARNESS_PATH, capabilities, env vars'),
+    row('clear',                          'clear the terminal'),
+    row('help --filesystem-map',          'show linux ↔ harness.os mapping table'),
+    blank(),
   ];
 }
 
@@ -168,21 +287,21 @@ async function handleList(args: string[]): Promise<TerminalLine[]> {
 async function handleGet(args: string[]): Promise<TerminalLine[]> {
   const path = args[0] ?? '';
   if (!path || !path.includes('/')) {
-    return [{ type: 'error', text: 'Usage: get {domain}/{slug}' }];
+    return [{ type: 'error', text: 'Usage: get DOMAIN/SLUG' }];
   }
   const [domain, slug] = path.split('/');
   const res = await fetch(`/api/knowledge/${domain}/${slug}`);
   if (!res.ok) return [{ type: 'error', text: `Not found: ${path}` }];
   const chunk = await res.json() as Record<string, unknown>;
+  const concerns = (chunk.concerns as string[] ?? []).join(', ') || '—';
+  const tags     = (chunk.tags as string[] ?? []).join(', ') || '—';
   return [
-    { type: 'system',  text: chunk.title as string },
-    { type: 'output',  text: `domain: ${chunk.domain as string}  concerns: ${(chunk.concerns as string[] ?? []).join(', ') || '—'}` },
-    { type: 'output',  text: `tags: ${(chunk.tags as string[] ?? []).join(', ') || '—'}` },
+    { type: 'header',  text: chunk.title as string },
+    { type: 'output',  text: `  domain: ${chunk.domain as string}` },
+    { type: 'output',  text: `  concerns: ${concerns}` },
+    { type: 'output',  text: `  tags: ${tags}` },
     { type: 'divider', text: '' },
-    ...((chunk.content as string) ?? '').split('\n').slice(0, 20).map(l => ({
-      type: 'output' as const,
-      text: l,
-    })),
+    ...parseMarkdown((chunk.content as string) ?? ''),
   ];
 }
 
@@ -403,7 +522,7 @@ async function runCommand(cmd: string, dist: string): Promise<TerminalLine[]> {
   const rest = tokens.slice(1);
 
   try {
-    if (verb === 'help')    return handleHelp(rest[0] ?? '', dist);
+    if (verb === 'help')    return handleHelp(rest, dist);
     if (verb === 'list')    return handleList(rest);
     if (verb === 'get')     return handleGet(rest);
     if (verb === 'search')  return handleSearch(rest);
@@ -490,15 +609,94 @@ export function TerminalApp() {
     }
   }
 
-  function lineStyle(type: TerminalLine['type']): React.CSSProperties {
-    switch (type) {
-      case 'input':   return { color: 'var(--color-kernel)', opacity: 0.9 };
-      case 'system':  return { color: 'var(--color-active)', fontWeight: 600 };
-      case 'header':  return { color: 'var(--color-kernel)', fontWeight: 700 };
-      case 'divider': return { color: 'transparent', height: '4px', display: 'block' };
-      case 'error':   return { color: 'var(--color-error)' };
-      default:        return { color: 'var(--color-os-text-secondary)' };
+  function renderLine(line: TerminalLine, i: number) {
+    // blank spacer
+    if (line.type === 'divider') {
+      return <div key={i} style={{ height: 6 }} />;
     }
+
+    // section header — uppercase label, accent color, small top margin
+    if (line.type === 'system') {
+      return (
+        <div key={i} className="leading-5 mt-1">
+          <span style={{ color: 'var(--color-active)', fontWeight: 700, letterSpacing: '0.06em' }}>
+            {line.text}
+          </span>
+        </div>
+      );
+    }
+
+    // terminal title / first-line header
+    if (line.type === 'header') {
+      return (
+        <div key={i} className="leading-5 mb-1">
+          <span style={{ color: 'var(--color-kernel)', fontWeight: 700 }}>{line.text}</span>
+        </div>
+      );
+    }
+
+    // user-typed input line — kernel color with prompt prefix
+    if (line.type === 'input') {
+      return (
+        <div key={i} className="flex items-start gap-2 leading-5 mt-1">
+          <span className="shrink-0" style={{ color: 'var(--color-kernel)', opacity: 0.55 }}>
+            {distributionName} ~ $
+          </span>
+          <span style={{ color: 'var(--color-kernel)', opacity: 0.9 }}>{line.text}</span>
+        </div>
+      );
+    }
+
+    // error
+    if (line.type === 'error') {
+      return (
+        <div key={i} className="leading-5">
+          <span style={{ color: 'var(--color-error)' }}>{line.text}</span>
+        </div>
+      );
+    }
+
+    // two-tone row: sig (bright) + text (muted) — for help rows
+    if (line.type === 'row') {
+      return (
+        <div key={i} className="leading-5 flex">
+          <span style={{ color: 'var(--color-os-text)', whiteSpace: 'pre' }}>{line.sig}</span>
+          <span style={{ color: 'var(--color-os-text-muted)', whiteSpace: 'pre' }}>{line.text}</span>
+        </div>
+      );
+    }
+
+    // flag continuation — slightly indented, dimmer than row
+    if (line.type === 'flag') {
+      return (
+        <div key={i} className="leading-5 flex">
+          <span style={{ color: 'var(--color-os-text-muted)', whiteSpace: 'pre' }}>{line.sig}</span>
+          <span style={{ color: 'var(--color-os-text-muted)', opacity: 0.65, whiteSpace: 'pre' }}>{line.text}</span>
+        </div>
+      );
+    }
+
+    // inline code block line — dim background, monospace highlight
+    if (line.type === 'md-code') {
+      return (
+        <div key={i} className="leading-5">
+          <span style={{
+            color: 'var(--color-kernel)',
+            background: 'rgba(99,102,241,0.08)',
+            display: 'block',
+            padding: '0 4px',
+            whiteSpace: 'pre',
+          }}>{line.text}</span>
+        </div>
+      );
+    }
+
+    // plain output
+    return (
+      <div key={i} className="leading-5">
+        <span style={{ color: 'var(--color-os-text-secondary)', whiteSpace: 'pre' }}>{line.text}</span>
+      </div>
+    );
   }
 
   return (
@@ -508,17 +706,8 @@ export function TerminalApp() {
       style={{ background: 'var(--color-os-bg)' }}
     >
       {/* Output */}
-      <div className="flex-1 os-scroll p-4 space-y-0.5">
-        {lines.map((line, i) => (
-          <div key={i} className="flex items-start gap-2 leading-5">
-            {line.type === 'input' && (
-              <span className="shrink-0" style={{ color: 'var(--color-kernel)', opacity: 0.5 }}>
-                {distributionName} ~ $
-              </span>
-            )}
-            <span style={lineStyle(line.type)}>{line.text}</span>
-          </div>
-        ))}
+      <div className="flex-1 os-scroll p-4">
+        {lines.map((line, i) => renderLine(line, i))}
         <div ref={bottomRef} />
       </div>
 

@@ -22,7 +22,7 @@ const APP_COMPONENTS: Record<AppId, React.ComponentType> = {
 const APP_TITLES: Record<AppId, string> = {
   knowledge: 'Knowledge Manager',
   sessions:  'Session Monitor',
-  cortex:    'Cortex',
+  cortex:    'Cognitive Layer',
   terminal:  'Terminal',
   agents:    'Agents',
   settings:  'Settings',
@@ -42,7 +42,7 @@ const APP_ICONS: Record<AppId, string> = {
 const APP_DESCS: Record<AppId, string> = {
   knowledge: 'Browse and search knowledge domains',
   sessions:  'Monitor sessions and handoffs',
-  cortex:    'Learnings, decisions, cognitive sync',
+  cortex:    'Learnings, decisions, concern coverage',
   terminal:  'CLI — direct command access',
   agents:    'Mesh agents and access profiles',
   settings:  'Distribution configuration',
