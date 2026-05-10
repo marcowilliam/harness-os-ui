@@ -407,8 +407,17 @@ watcher.on('all', (_event, filePath) => {
   }, 200);
 });
 
+// Serve built frontend
+const distDir = path.join(process.cwd(), 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.use((req: any, res: any, next: any) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
 server.listen(PORT, () => {
-  console.log(`Harness API server running on http://localhost:${PORT}`);
-  console.log(`WebSocket server at ws://localhost:${PORT}/ws`);
-  console.log(`Watching harness data at: ${HARNESS_PATH}`);
+  const name = path.basename(HARNESS_PATH);
+  console.log(`[${name}] http://localhost:${PORT}`);
 });
