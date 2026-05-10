@@ -40,6 +40,23 @@ function OsShell() {
       applyBrand(health.brand);
     }
 
+    if (health.apps) {
+      const pkgApps = Object.entries(health.apps).map(([slug, app]: [string, any]) => ({
+        slug,
+        name: app.name ?? slug,
+        icon: app.icon ?? 'message',
+        color: app.color ?? '#888',
+        description: app.description ?? '',
+        autoOpen: app.autoOpen ?? false,
+        mcp: health.mcp?.[slug] ? {
+          server: slug,
+          status: health.mcp[slug].status as 'disconnected' | 'connecting' | 'ready' | 'error',
+          tools: health.mcp[slug].tools ?? [],
+        } : undefined,
+      }));
+      setPackageApps(pkgApps);
+    }
+
     if (health.users) {
       const userList: DistroUser[] = Object.entries(health.users).map(([slug, u]) => ({
         slug,

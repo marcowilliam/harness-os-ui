@@ -429,40 +429,14 @@ app.post('/api/assistant/chat', (req, res) => {
     'Connection': 'keep-alive',
   });
 
-  // Build MCP config for active app (so Claude can call app tools)
-  let mcpConfigPath: string | undefined;
-  if (activeApp) {
-    const manifestPath = getPackageManifestPath(activeApp);
-    const manifest = manifestPath ? loadPackageManifest(manifestPath) : null;
-    if (manifest?.mcp) {
-      const mcpConfig = {
-        mcpServers: {
-          [activeApp]: {
-            command: manifest.mcp.command,
-            args: manifest.mcp.args,
-            cwd: manifest.mcp.cwd,
-            env: manifest.mcp.env,
-          },
-        },
-      };
-      mcpConfigPath = path.join('/tmp', `mcp-${activeApp}-${Date.now()}.json`);
-      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig));
-    }
-  }
-
-  const claudeArgs = [
+  const child = spawn('claude', [
     '-p', lastMessage,
     '--output-format', 'stream-json',
     '--verbose',
     '--system-prompt', systemPrompt,
-    '--max-turns', activeApp ? '5' : '1',
+    '--max-turns', '1',
     '--dangerously-skip-permissions',
-  ];
-  if (mcpConfigPath) {
-    claudeArgs.push('--mcp-config', mcpConfigPath);
-  }
-
-  const child = spawn('claude', claudeArgs, {
+  ], {
     env: { ...process.env, HOME: process.env.HOME },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -509,13 +483,11 @@ app.post('/api/assistant/chat', (req, res) => {
     }
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
-    if (mcpConfigPath) fs.unlink(mcpConfigPath, () => {});
   });
 
   child.on('error', (err) => {
     res.write(`data: ${JSON.stringify({ type: 'error', text: `Failed to start Claude: ${err.message}` })}\n\n`);
     res.end();
-    if (mcpConfigPath) fs.unlink(mcpConfigPath, () => {});
   });
 
   res.on('close', () => {
@@ -912,8 +884,21 @@ app.post('/api/mcp/call', async (req, res) => {
   }
 
   try {
-    const result = await mcpManager.callTool(server, tool, args || {});
-    res.json({ result });
+    const raw = await mcpManager.callTool(server, tool, args || {}) as { content?: Array<{ type: string; text: string }>; isError?: boolean };
+    // MCP tools return { content: [{ type: 'text', text: '...' }] } — extract and parse
+    if (raw?.content && Array.isArray(raw.content)) {
+      const text = raw.content.filter(c => c.type === 'text').map(c => c.text).join('');
+      if (raw.isError) {
+        return res.status(500).json({ error: text });
+      }
+      try {
+        res.json({ result: JSON.parse(text) });
+      } catch {
+        res.json({ result: text });
+      }
+    } else {
+      res.json({ result: raw });
+    }
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
