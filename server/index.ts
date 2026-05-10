@@ -400,19 +400,22 @@ app.post('/api/assistant/chat', (req, res) => {
   let systemPrompt: string;
 
   if (activeApp) {
-    // Context-aware: build prompt with app's MCP tools and assistant context
+    // Context-aware: build prompt with app context (no tool calls — assistant is text-only)
     const manifestPath = getPackageManifestPath(activeApp);
     const manifest = manifestPath ? loadPackageManifest(manifestPath) : null;
     const conn = mcpManager.getConnection(activeApp);
-    const toolList = conn?.tools.map(t => `- ${t.name}: ${t.description}`).join('\n') || '';
+    const toolNames = conn?.tools.map(t => t.name).join(', ') || '';
 
     const appPrompt = manifest?.assistant?.system_prompt || '';
     systemPrompt = [
       `You are the native assistant for ${distName}, running inside harness.os.`,
       appPrompt,
-      toolList ? `\nAvailable tools:\n${toolList}` : '',
-      `\nWhen the user asks for data, use the available tools. Keep responses concise.`,
-      `Return structured data when tools return results so the UI can render it.`,
+      `\nIMPORTANT: You are a TEXT-ONLY conversational assistant. You CANNOT call tools or use function calling.`,
+      `Do NOT attempt tool_use. Instead, respond with helpful text.`,
+      toolNames ? `\nThe app has these data capabilities: ${toolNames}. The UI fetches this data automatically.` : '',
+      `When the user asks for data (debriefs, stats, videos, skills), tell them what's available and that the UI is showing it.`,
+      `If they ask about specific jumps or debriefs, help them interpret what they see.`,
+      `Keep responses concise (2-3 sentences).`,
     ].filter(Boolean).join('\n');
   } else {
     systemPrompt = [
@@ -443,6 +446,9 @@ app.post('/api/assistant/chat', (req, res) => {
 
   let lastTextLen = 0;
   let buffer = '';
+  let streamModel: string | null = null;
+  let streamUsage: { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number } | null = null;
+  let streamCostUsd: number | null = null;
 
   child.stdout.on('data', (chunk: Buffer) => {
     buffer += chunk.toString();
@@ -454,6 +460,9 @@ app.post('/api/assistant/chat', (req, res) => {
       try {
         const event = JSON.parse(line);
         if (event.type === 'assistant' && event.message?.content) {
+          if (event.message.model && !streamModel) {
+            streamModel = event.message.model;
+          }
           for (const block of event.message.content) {
             if (block.type === 'text' && block.text.length > lastTextLen) {
               const delta = block.text.slice(lastTextLen);
@@ -461,10 +470,21 @@ app.post('/api/assistant/chat', (req, res) => {
               res.write(`data: ${JSON.stringify({ type: 'delta', text: delta })}\n\n`);
             }
           }
-        } else if (event.type === 'result' && event.result) {
-          if (lastTextLen === 0) {
+        } else if (event.type === 'result') {
+          if (event.result && lastTextLen === 0) {
             res.write(`data: ${JSON.stringify({ type: 'delta', text: event.result })}\n\n`);
           }
+          if (event.usage) {
+            streamUsage = {
+              inputTokens: event.usage.input_tokens,
+              outputTokens: event.usage.output_tokens,
+              cacheReadInputTokens: event.usage.cache_read_input_tokens,
+            };
+          }
+          if (event.total_cost_usd !== undefined) {
+            streamCostUsd = event.total_cost_usd;
+          }
+          if (event.model) streamModel = event.model;
         }
       } catch {
         // not JSON
@@ -476,12 +496,23 @@ app.post('/api/assistant/chat', (req, res) => {
     if (buffer.trim()) {
       try {
         const event = JSON.parse(buffer);
-        if (event.type === 'result' && event.result && lastTextLen === 0) {
-          res.write(`data: ${JSON.stringify({ type: 'delta', text: event.result })}\n\n`);
+        if (event.type === 'result') {
+          if (event.result && lastTextLen === 0) {
+            res.write(`data: ${JSON.stringify({ type: 'delta', text: event.result })}\n\n`);
+          }
+          if (event.usage) {
+            streamUsage = {
+              inputTokens: event.usage.input_tokens,
+              outputTokens: event.usage.output_tokens,
+              cacheReadInputTokens: event.usage.cache_read_input_tokens,
+            };
+          }
+          if (event.total_cost_usd !== undefined) streamCostUsd = event.total_cost_usd;
+          if (event.model) streamModel = event.model;
         }
       } catch { /* ignore */ }
     }
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'done', model: streamModel, usage: streamUsage, costUsd: streamCostUsd })}\n\n`);
     res.end();
   });
 
