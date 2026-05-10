@@ -1,45 +1,67 @@
 import { create } from 'zustand';
-import type { OsEvent } from './lib/types';
+import type { OsEvent, AssistantMessage, PackageApp, DistroUser } from './lib/types';
 
-export type AppId = 'knowledge' | 'sessions' | 'cortex' | 'terminal' | 'agents' | 'settings' | 'theory';
+export type SystemAppId = 'knowledge' | 'sessions' | 'cortex' | 'terminal' | 'agents' | 'settings' | 'theory' | 'workflows';
+export type AppId = SystemAppId | `pkg:${string}`;
 
 interface OsState {
-  // Active app
   activeApp: AppId | null;
   setActiveApp: (app: AppId | null) => void;
 
-  // Open apps (can have multiple)
   openApps: AppId[];
   openApp: (app: AppId) => void;
   closeApp: (app: AppId) => void;
 
-  // WebSocket
   wsConnected: boolean;
   setWsConnected: (v: boolean) => void;
 
-  // Notifications
   notifications: OsEvent[];
   addNotification: (e: OsEvent) => void;
   clearNotification: (i: number) => void;
 
-  // Session tracking
   activeProject: string | null;
   setActiveProject: (p: string | null) => void;
 
-  // Tray counters
   sessionTokens: number;
   setSessionTokens: (n: number) => void;
   sessionLearnings: number;
   setSessionLearnings: (n: number) => void;
 
-  // Distribution info (loaded from /api/health)
   distributionName: string;
   setDistributionName: (name: string) => void;
 
-  // Boot sequence
   isBooting: boolean;
   setIsBooting: (v: boolean) => void;
+
+  // Assistant
+  assistantMessages: AssistantMessage[];
+  assistantExpanded: boolean;
+  sendAssistantMessage: (text: string) => void;
+  addAssistantResponse: (content: string) => void;
+  minimizeAssistant: () => void;
+  expandAssistant: () => void;
+
+  // Workflow execution
+  activeWorkflowJob: string | null;
+  setActiveWorkflowJob: (id: string | null) => void;
+
+  // Package apps (from harness.yaml)
+  packageApps: PackageApp[];
+  setPackageApps: (apps: PackageApp[]) => void;
+
+  // MCP app data — results from MCP tool calls, keyed by app slug
+  appData: Record<string, Record<string, unknown>>;
+  setAppData: (app: string, key: string, data: unknown) => void;
+  clearAppData: (app: string) => void;
+
+  // User identity
+  activeUser: DistroUser | null;
+  users: DistroUser[];
+  setActiveUser: (user: DistroUser | null) => void;
+  setUsers: (users: DistroUser[]) => void;
 }
+
+let msgId = 0;
 
 export const useStore = create<OsState>((set) => ({
   activeApp: null,
@@ -75,4 +97,51 @@ export const useStore = create<OsState>((set) => ({
 
   isBooting: false,
   setIsBooting: (v) => set({ isBooting: v }),
+
+  // Assistant
+  assistantMessages: [],
+  assistantExpanded: false,
+  sendAssistantMessage: (text) => set((s) => ({
+    assistantMessages: [...s.assistantMessages, {
+      id: `msg-${++msgId}`,
+      role: 'user',
+      content: text,
+      timestamp: Date.now(),
+    }],
+    assistantExpanded: true,
+  })),
+  addAssistantResponse: (content) => set((s) => ({
+    assistantMessages: [...s.assistantMessages, {
+      id: `msg-${++msgId}`,
+      role: 'assistant',
+      content,
+      timestamp: Date.now(),
+    }],
+  })),
+  minimizeAssistant: () => set({ assistantExpanded: false }),
+  expandAssistant: () => set({ assistantExpanded: true }),
+
+  // Workflow execution
+  activeWorkflowJob: null,
+  setActiveWorkflowJob: (id) => set({ activeWorkflowJob: id }),
+
+  // Package apps
+  packageApps: [],
+  setPackageApps: (apps) => set({ packageApps: apps }),
+
+  // MCP app data
+  appData: {},
+  setAppData: (app, key, data) => set((s) => ({
+    appData: { ...s.appData, [app]: { ...s.appData[app], [key]: data } },
+  })),
+  clearAppData: (app) => set((s) => {
+    const { [app]: _, ...rest } = s.appData;
+    return { appData: rest };
+  }),
+
+  // User identity
+  activeUser: null,
+  users: [],
+  setActiveUser: (user) => set({ activeUser: user }),
+  setUsers: (users) => set({ users }),
 }));

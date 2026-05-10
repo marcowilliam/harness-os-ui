@@ -35,7 +35,15 @@ const CORTEX_MAP: Array<{ cmd: string }> = [
 const ALL_COMMAND_NAMES = [
   'list', 'get', 'search', 'info', 'context', 'stats', 'health', 'config',
   'log decision', 'log learning', 'concern matrix', 'handoff',
+  'install', 'uninstall', 'open', 'build:software', 'build:content', 'build:product', 'workflow',
   'help', 'clear',
+];
+
+const APP_HUB: Array<{ slug: string; name: string; emoji: string; icon: string; color: string; description: string }> = [
+  { slug: 'way2fly', name: 'way2fly.ai', emoji: '🪂', icon: 'parachute', color: '#818cf8', description: 'AI skydive jump logging assistant' },
+  { slug: 'savings', name: 'Poupanca pros Vei', emoji: '📊', icon: 'chart', color: '#22c55e', description: 'AI savings management for family' },
+  { slug: 'books', name: 'Book Assistant', emoji: '📖', icon: 'book', color: '#f97316', description: 'AI-powered book and reading log' },
+  { slug: 'assistant', name: 'Assistant', emoji: '💬', icon: 'message', color: '#6366f1', description: 'Native AI assistant (Claude Code)' },
 ];
 
 // ── Tokenizer ──────────────────────────────────────────────────────────────
@@ -254,6 +262,15 @@ async function handleHelp(args: string[], dist: string): Promise<TerminalLine[]>
     row('list rules',                     'active rules'),
     row('list workflows',                 'installed workflows'),
     row('context',                        'active distribution, projects, scale'),
+    blank(),
+
+    // ── Workflows ─────────────────────────────────────────────────────────
+    section('WORKFLOWS'),
+    row('build:software PKG "REQUEST"',   'trigger software dev process for a package'),
+    row('build:content "REQUEST"',        'trigger content creation workflow'),
+    row('build:product PKG "REQUEST"',    'trigger product workflow for a package'),
+    row('workflow status',                'list active and recent jobs'),
+    row('workflow cancel JOBID',          'cancel a running workflow'),
     blank(),
 
     // ── System ────────────────────────────────────────────────────────────
@@ -569,6 +586,197 @@ async function handleHandoff(args: string[]): Promise<TerminalLine[]> {
   return lines;
 }
 
+// ── Package management ────────────────────────────────────────────────────
+
+function handleListPackages(installed: string[]): TerminalLine[] {
+  return [
+    { type: 'system', text: 'package hub' },
+    { type: 'divider', text: '' },
+    ...APP_HUB.map(app => {
+      const isInstalled = installed.includes(app.slug);
+      return {
+        type: 'row' as const,
+        sig: `  ${app.emoji} ${app.slug}`,
+        text: `${isInstalled ? '[installed]' : '[available]'}  ${app.name} — ${app.description}`,
+      };
+    }),
+    { type: 'divider', text: '' },
+    { type: 'output', text: '  install <slug>   — install a package' },
+    { type: 'output', text: '  uninstall <slug> — remove a package' },
+  ];
+}
+
+function handleInstall(slug: string, installed: string[]): TerminalLine[] {
+  const app = APP_HUB.find(a => a.slug === slug);
+  if (!app) {
+    return [{ type: 'error', text: `Package "${slug}" not found. Run 'list packages' to see available.` }];
+  }
+  if (installed.includes(slug)) {
+    return [{ type: 'output', text: `${app.emoji} ${app.name} is already installed.` }];
+  }
+  const { packageApps, setPackageApps } = useStore.getState();
+  setPackageApps([...packageApps, {
+    slug: app.slug,
+    name: app.name,
+    icon: app.icon,
+    color: app.color,
+    description: app.description,
+  }]);
+  return [
+    { type: 'system', text: `installing ${app.name}...` },
+    { type: 'output', text: `${app.emoji} ${app.name} installed. Visible in dock and launcher.` },
+  ];
+}
+
+function handleUninstall(slug: string, installed: string[]): TerminalLine[] {
+  const app = APP_HUB.find(a => a.slug === slug);
+  if (!app) {
+    return [{ type: 'error', text: `Package "${slug}" not found.` }];
+  }
+  if (!installed.includes(slug)) {
+    return [{ type: 'output', text: `${app.emoji} ${app.name} is not installed.` }];
+  }
+  const { packageApps, setPackageApps } = useStore.getState();
+  setPackageApps(packageApps.filter(a => a.slug !== slug));
+  return [
+    { type: 'system', text: `removing ${app.name}...` },
+    { type: 'output', text: `${app.emoji} ${app.name} uninstalled.` },
+  ];
+}
+
+function handleOpen(appName: string): TerminalLine[] {
+  const { openApp } = useStore.getState();
+  const systemApps: Record<string, string> = {
+    knowledge: 'knowledge', sessions: 'sessions', cortex: 'cortex', cognitive: 'cortex',
+    terminal: 'terminal', agents: 'agents', settings: 'settings', theory: 'theory',
+    workflows: 'workflows',
+  };
+  const lower = appName.toLowerCase();
+  const sysId = systemApps[lower];
+  if (sysId) {
+    openApp(sysId as import('../../store').AppId);
+    return [{ type: 'output', text: `Opening ${appName}...` }];
+  }
+  const pkg = APP_HUB.find(a => a.slug === lower || a.name.toLowerCase() === lower);
+  if (pkg) {
+    openApp(`pkg:${pkg.slug}` as import('../../store').AppId);
+    return [{ type: 'output', text: `Opening ${pkg.name}...` }];
+  }
+  return [{ type: 'error', text: `App "${appName}" not found. Try 'list packages' or 'help'.` }];
+}
+
+// ── Build / Workflow commands ─────────────────────────────────────────────
+
+const WORKFLOW_TYPE_MAP: Record<string, string> = {
+  software: 'software-dev-process',
+  content: 'content-creation',
+  product: 'product-development',
+};
+
+async function handleBuild(buildType: string, args: string[]): Promise<TerminalLine[]> {
+  const workflow = WORKFLOW_TYPE_MAP[buildType];
+  if (!workflow) {
+    return [
+      { type: 'error', text: `Unknown build type: "${buildType}"` },
+      { type: 'output', text: '  Available: build:software, build:content, build:product' },
+    ];
+  }
+
+  const pkgSlug = args[0];
+  if (!pkgSlug) {
+    return [
+      { type: 'error', text: `Usage: build:${buildType} <package-slug> "<request>"` },
+      { type: 'output', text: `  Example: build:${buildType} way2fly "add loading spinner"` },
+    ];
+  }
+
+  const installed = useStore.getState().packageApps.map(a => a.slug);
+  if (!installed.includes(pkgSlug)) {
+    return [{ type: 'error', text: `Package "${pkgSlug}" is not installed. Run 'install ${pkgSlug}' first.` }];
+  }
+
+  const request = args.slice(1).join(' ').replace(/^["']|["']$/g, '');
+  if (!request) {
+    return [{ type: 'error', text: `Please provide a request. Example: build:${buildType} way2fly "add loading spinner"` }];
+  }
+
+  try {
+    const res = await fetch('/api/workflow/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow, target: pkgSlug, request }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json() as Record<string, string>;
+      return [{ type: 'error', text: err.error || 'Failed to start workflow' }];
+    }
+
+    const data = await res.json() as { jobId: string; phases: string[] };
+    const { openApp } = useStore.getState();
+    openApp('workflows');
+    useStore.getState().setActiveWorkflowJob(data.jobId);
+
+    return [
+      { type: 'system', text: `workflow started: ${data.jobId}` },
+      { type: 'output', text: `  type:    build:${buildType}` },
+      { type: 'output', text: `  target:  ${pkgSlug}` },
+      { type: 'output', text: `  request: ${request}` },
+      { type: 'output', text: `  phases:  ${data.phases.join(' → ')}` },
+      { type: 'divider', text: '' },
+      { type: 'output', text: '  Opening Workflows view to monitor progress...' },
+    ];
+  } catch {
+    return [{ type: 'error', text: 'Network error — is the server running?' }];
+  }
+}
+
+async function handleWorkflow(args: string[]): Promise<TerminalLine[]> {
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === 'status' || sub === 'jobs') {
+    try {
+      const res = await fetch('/api/workflow/jobs');
+      const jobs = await res.json() as Array<Record<string, unknown>>;
+      if (!jobs.length) return [{ type: 'output', text: '(no workflow jobs)' }];
+      return [
+        { type: 'system', text: 'workflow jobs' },
+        ...jobs.map(j => ({
+          type: 'row' as const,
+          sig: `  ${(j.id as string).slice(0, 16)}`,
+          text: `  ${(j.status as string).padEnd(10)} ${j.target as string}  "${(j.request as string).slice(0, 40)}"`,
+        })),
+      ];
+    } catch {
+      return [{ type: 'error', text: 'Failed to fetch workflow jobs' }];
+    }
+  }
+
+  if (sub === 'cancel') {
+    const jobId = args[1];
+    if (!jobId) return [{ type: 'error', text: 'Usage: workflow cancel <jobId>' }];
+    try {
+      const res = await fetch(`/api/workflow/cancel/${jobId}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json() as Record<string, string>;
+        return [{ type: 'error', text: err.error || 'Failed to cancel' }];
+      }
+      return [{ type: 'system', text: `Cancelled: ${jobId}` }];
+    } catch {
+      return [{ type: 'error', text: 'Network error' }];
+    }
+  }
+
+  return [
+    { type: 'system', text: 'workflow commands' },
+    row('workflow status',                  'list active and recent jobs'),
+    row('workflow cancel <jobId>',          'cancel a running workflow'),
+    row('build:software <pkg> "<request>"', 'trigger software dev process'),
+    row('build:content "<request>"',        'trigger content creation'),
+    row('build:product <pkg> "<request>"',  'trigger product workflow'),
+  ];
+}
+
 // ── Main dispatcher ────────────────────────────────────────────────────────
 
 async function runCommand(cmd: string, dist: string): Promise<TerminalLine[]> {
@@ -579,7 +787,13 @@ async function runCommand(cmd: string, dist: string): Promise<TerminalLine[]> {
 
   try {
     if (verb === 'help')    return handleHelp(rest, dist);
-    if (verb === 'list')    return handleList(rest);
+    if (verb === 'list') {
+      if (rest[0]?.toLowerCase() === 'packages') {
+        const installed = useStore.getState().packageApps.map(a => a.slug);
+        return handleListPackages(installed);
+      }
+      return handleList(rest);
+    }
     if (verb === 'get')     return handleGet(rest);
     if (verb === 'search')  return handleSearch(rest);
     if (verb === 'info')    return handleInfo();
@@ -588,6 +802,32 @@ async function runCommand(cmd: string, dist: string): Promise<TerminalLine[]> {
     if (verb === 'health')  return handleHealth();
     if (verb === 'config')  return handleConfig();
     if (verb === 'handoff') return handleHandoff(rest);
+    if (verb === 'install') {
+      if (!rest[0]) return [{ type: 'error', text: 'Usage: install <package-slug>' }];
+      const installed = useStore.getState().packageApps.map(a => a.slug);
+      return handleInstall(rest[0], installed);
+    }
+    if (verb === 'uninstall') {
+      if (!rest[0]) return [{ type: 'error', text: 'Usage: uninstall <package-slug>' }];
+      const installed = useStore.getState().packageApps.map(a => a.slug);
+      return handleUninstall(rest[0], installed);
+    }
+    if (verb === 'open') {
+      if (!rest[0]) return [{ type: 'error', text: 'Usage: open <app-name>' }];
+      return handleOpen(rest.join(' '));
+    }
+    if (verb.startsWith('build:')) {
+      const buildType = verb.split(':')[1];
+      return handleBuild(buildType, rest);
+    }
+    if (verb === 'build') {
+      return [
+        { type: 'error', text: 'Usage: build:<type> <package> "<request>"' },
+        { type: 'output', text: '  Types: software, content, product' },
+        { type: 'output', text: '  Example: build:software way2fly "add loading spinner"' },
+      ];
+    }
+    if (verb === 'workflow') return handleWorkflow(rest);
     if (verb === 'concern' && rest[0]?.toLowerCase() === 'matrix') return handleConcernMatrix();
     if (verb === 'log') {
       const sub = rest[0]?.toLowerCase();

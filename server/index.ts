@@ -7,6 +7,8 @@ import matter from 'gray-matter';
 import yaml from 'js-yaml';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watch } from 'chokidar';
+import { spawn } from 'child_process';
+import { McpManager, PackageManifest } from './mcp.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
@@ -101,6 +103,18 @@ app.get('/api/health', (_req, res) => {
     ?.map(p => p.slug) ?? [];
   const brand = (harnessYaml?.brand as Record<string, string> | undefined) ?? null;
   const capabilities = (harnessYaml?.capabilities as Record<string, unknown> | undefined) ?? null;
+  const apps = (harnessYaml?.apps as Record<string, unknown> | undefined) ?? null;
+  const users = (harnessYaml?.users as Record<string, unknown> | undefined) ?? null;
+  const instance = (harnessYaml?.instance as Record<string, unknown> | undefined) ?? null;
+
+  // MCP server status for packages
+  const mcpStatus: Record<string, { status: string; tools: string[] }> = {};
+  for (const conn of mcpManager.getAllConnections()) {
+    mcpStatus[conn.slug] = {
+      status: conn.status,
+      tools: conn.tools.map(t => t.name),
+    };
+  }
 
   jsonT(res, {
     status: 'ok',
@@ -110,6 +124,10 @@ app.get('/api/health', (_req, res) => {
     projects,
     brand,
     capabilities,
+    apps,
+    users,
+    instance,
+    mcp: mcpStatus,
     counts: {
       knowledge: knowledgeCount,
       rules: rulesCount,
@@ -366,6 +384,559 @@ function broadcast(msg: { type: string; queryKeys?: string[][] }) {
   }
 }
 
+// --- Assistant (Claude Code CLI) ---
+
+app.post('/api/assistant/chat', (req, res) => {
+  const { messages, activeApp } = req.body as { messages: Array<{ role: string; content: string }>; activeApp?: string };
+  if (!messages || messages.length === 0) {
+    return res.status(400).json({ error: 'No messages provided' });
+  }
+
+  const harnessYaml = parseYamlFile(path.join(HARNESS_PATH, 'harness.yaml')) as Record<string, unknown> | null;
+  const distName = (harnessYaml?.distribution as string) ?? 'harness.os';
+
+  const lastMessage = messages[messages.length - 1].content;
+
+  let systemPrompt: string;
+
+  if (activeApp) {
+    // Context-aware: build prompt with app's MCP tools and assistant context
+    const manifestPath = getPackageManifestPath(activeApp);
+    const manifest = manifestPath ? loadPackageManifest(manifestPath) : null;
+    const conn = mcpManager.getConnection(activeApp);
+    const toolList = conn?.tools.map(t => `- ${t.name}: ${t.description}`).join('\n') || '';
+
+    const appPrompt = manifest?.assistant?.system_prompt || '';
+    systemPrompt = [
+      `You are the native assistant for ${distName}, running inside harness.os.`,
+      appPrompt,
+      toolList ? `\nAvailable tools:\n${toolList}` : '',
+      `\nWhen the user asks for data, use the available tools. Keep responses concise.`,
+      `Return structured data when tools return results so the UI can render it.`,
+    ].filter(Boolean).join('\n');
+  } else {
+    systemPrompt = [
+      `You are the native assistant for ${distName}.`,
+      `You are running inside harness.os — a Layer 2 operating system that turns files into structured knowledge.`,
+      `The distribution data is at: ${HARNESS_PATH}`,
+      `Keep responses concise (2-4 sentences). You can reference knowledge domains, rules, and workflows available in the OS.`,
+    ].join(' ');
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  // Build MCP config for active app (so Claude can call app tools)
+  let mcpConfigPath: string | undefined;
+  if (activeApp) {
+    const manifestPath = getPackageManifestPath(activeApp);
+    const manifest = manifestPath ? loadPackageManifest(manifestPath) : null;
+    if (manifest?.mcp) {
+      const mcpConfig = {
+        mcpServers: {
+          [activeApp]: {
+            command: manifest.mcp.command,
+            args: manifest.mcp.args,
+            cwd: manifest.mcp.cwd,
+            env: manifest.mcp.env,
+          },
+        },
+      };
+      mcpConfigPath = path.join('/tmp', `mcp-${activeApp}-${Date.now()}.json`);
+      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig));
+    }
+  }
+
+  const claudeArgs = [
+    '-p', lastMessage,
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--system-prompt', systemPrompt,
+    '--max-turns', activeApp ? '5' : '1',
+    '--dangerously-skip-permissions',
+  ];
+  if (mcpConfigPath) {
+    claudeArgs.push('--mcp-config', mcpConfigPath);
+  }
+
+  const child = spawn('claude', claudeArgs, {
+    env: { ...process.env, HOME: process.env.HOME },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let lastTextLen = 0;
+  let buffer = '';
+
+  child.stdout.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event.type === 'assistant' && event.message?.content) {
+          for (const block of event.message.content) {
+            if (block.type === 'text' && block.text.length > lastTextLen) {
+              const delta = block.text.slice(lastTextLen);
+              lastTextLen = block.text.length;
+              res.write(`data: ${JSON.stringify({ type: 'delta', text: delta })}\n\n`);
+            }
+          }
+        } else if (event.type === 'result' && event.result) {
+          if (lastTextLen === 0) {
+            res.write(`data: ${JSON.stringify({ type: 'delta', text: event.result })}\n\n`);
+          }
+        }
+      } catch {
+        // not JSON
+      }
+    }
+  });
+
+  child.on('close', () => {
+    if (buffer.trim()) {
+      try {
+        const event = JSON.parse(buffer);
+        if (event.type === 'result' && event.result && lastTextLen === 0) {
+          res.write(`data: ${JSON.stringify({ type: 'delta', text: event.result })}\n\n`);
+        }
+      } catch { /* ignore */ }
+    }
+    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    res.end();
+    if (mcpConfigPath) fs.unlink(mcpConfigPath, () => {});
+  });
+
+  child.on('error', (err) => {
+    res.write(`data: ${JSON.stringify({ type: 'error', text: `Failed to start Claude: ${err.message}` })}\n\n`);
+    res.end();
+    if (mcpConfigPath) fs.unlink(mcpConfigPath, () => {});
+  });
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      child.kill();
+    }
+  });
+});
+
+// --- Workflow Engine ---
+
+interface WorkflowPhase {
+  name: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  instruction: string;
+}
+
+interface WorkflowJob {
+  id: string;
+  workflow: string;
+  target: string;
+  request: string;
+  status: 'queued' | 'running' | 'complete' | 'error';
+  currentPhase: string;
+  phases: WorkflowPhase[];
+  logs: Array<{ phase: string; text: string; ts: number }>;
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
+}
+
+const workflowJobs = new Map<string, WorkflowJob>();
+const workflowListeners = new Map<string, Set<(event: string) => void>>();
+
+function emitWorkflowEvent(jobId: string, event: Record<string, unknown>) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  const listeners = workflowListeners.get(jobId);
+  if (listeners) {
+    for (const send of listeners) send(data);
+  }
+  broadcast({ type: 'workflow_progress', queryKeys: [['workflow', 'jobs']] });
+}
+
+function getPackageSource(slug: string): string | null {
+  const harnessYaml = parseYamlFile(path.join(HARNESS_PATH, 'harness.yaml')) as Record<string, unknown> | null;
+  const apps = harnessYaml?.apps as Record<string, Record<string, unknown>> | undefined;
+  if (!apps || !apps[slug]) return null;
+  const source = apps[slug].source as string | undefined;
+  if (!source) return null;
+  if (!fs.existsSync(source)) return null;
+  return source;
+}
+
+function loadWorkflowSteps(slug: string): Array<{ order: number; name: string; instruction: string }> | null {
+  const workflowPath = path.join(HARNESS_PATH, 'core', 'workflows', `${slug}.yaml`);
+  const parsed = parseYamlFile(workflowPath) as Record<string, unknown> | null;
+  if (!parsed || !parsed.steps) return null;
+  return (parsed.steps as Array<Record<string, unknown>>).map(s => ({
+    order: s.order as number,
+    name: s.name as string,
+    instruction: s.instruction as string,
+  }));
+}
+
+async function runWorkflowJob(job: WorkflowJob) {
+  job.status = 'running';
+  const sourceDir = getPackageSource(job.target);
+
+  if (!sourceDir) {
+    job.status = 'error';
+    job.error = `No source directory found for package "${job.target}". Add 'source' field to harness.yaml apps.`;
+    job.completedAt = Date.now();
+    emitWorkflowEvent(job.id, { type: 'error', text: job.error });
+    emitWorkflowEvent(job.id, { type: 'done', status: 'error' });
+    return;
+  }
+
+  const harnessYaml = parseYamlFile(path.join(HARNESS_PATH, 'harness.yaml')) as Record<string, unknown> | null;
+  const distName = (harnessYaml?.distribution as string) ?? 'harness.os';
+
+  for (let i = 0; i < job.phases.length; i++) {
+    const phase = job.phases[i];
+    phase.status = 'running';
+    job.currentPhase = phase.name;
+    emitWorkflowEvent(job.id, { type: 'phase', name: phase.name, status: 'running', index: i });
+
+    const phasePrompt = [
+      `You are an agent in ${distName} running phase "${phase.name}" of the software development process.`,
+      `\nFEATURE REQUEST: ${job.request}`,
+      `\nTARGET: ${job.target} (source at: ${sourceDir})`,
+      `\nPHASE INSTRUCTION: ${phase.instruction}`,
+      `\nIMPORTANT: Stay focused on this phase only. Be concise. Follow existing code patterns.`,
+      phase.name === 'deploy' ? `\nDo NOT push or deploy. Only stage changes (git add) and summarize what was done.` : '',
+    ].join('');
+
+    const systemPrompt = [
+      `You are a development agent working on the "${job.target}" package.`,
+      `Current phase: ${phase.name} (${i + 1}/${job.phases.length}).`,
+      `Work in: ${sourceDir}`,
+      `Keep changes minimal and focused. Follow existing patterns.`,
+    ].join(' ');
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('claude', [
+          '-p', phasePrompt,
+          '--output-format', 'stream-json',
+          '--verbose',
+          '--system-prompt', systemPrompt,
+          '--max-turns', '20',
+          '--dangerously-skip-permissions',
+        ], {
+          cwd: sourceDir,
+          env: { ...process.env, HOME: process.env.HOME },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let buffer = '';
+        let lastTextLen = 0;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line);
+              if (event.type === 'assistant' && event.message?.content) {
+                for (const block of event.message.content) {
+                  if (block.type === 'text' && block.text.length > lastTextLen) {
+                    const delta = block.text.slice(lastTextLen);
+                    lastTextLen = block.text.length;
+                    job.logs.push({ phase: phase.name, text: delta, ts: Date.now() });
+                    emitWorkflowEvent(job.id, { type: 'log', phase: phase.name, text: delta });
+                  }
+                }
+              } else if (event.type === 'result' && event.result) {
+                if (lastTextLen === 0) {
+                  job.logs.push({ phase: phase.name, text: event.result, ts: Date.now() });
+                  emitWorkflowEvent(job.id, { type: 'log', phase: phase.name, text: event.result });
+                }
+              }
+            } catch { /* skip non-JSON */ }
+          }
+        });
+
+        child.stderr.on('data', (chunk: Buffer) => {
+          const text = chunk.toString().trim();
+          if (text) {
+            job.logs.push({ phase: phase.name, text: `[stderr] ${text}`, ts: Date.now() });
+          }
+        });
+
+        child.on('close', (code) => {
+          if (buffer.trim()) {
+            try {
+              const event = JSON.parse(buffer);
+              if (event.type === 'result' && event.result && lastTextLen === 0) {
+                job.logs.push({ phase: phase.name, text: event.result, ts: Date.now() });
+                emitWorkflowEvent(job.id, { type: 'log', phase: phase.name, text: event.result });
+              }
+            } catch { /* ignore */ }
+          }
+          if (code !== 0 && code !== null) {
+            reject(new Error(`Agent exited with code ${code}`));
+          } else {
+            resolve();
+          }
+        });
+
+        child.on('error', (err) => {
+          reject(new Error(`Failed to spawn agent: ${err.message}`));
+        });
+      });
+
+      phase.status = 'done';
+      emitWorkflowEvent(job.id, { type: 'phase', name: phase.name, status: 'done', index: i });
+    } catch (err) {
+      phase.status = 'error';
+      job.status = 'error';
+      job.error = (err as Error).message;
+      job.completedAt = Date.now();
+      emitWorkflowEvent(job.id, { type: 'phase', name: phase.name, status: 'error', index: i });
+      emitWorkflowEvent(job.id, { type: 'error', text: job.error });
+      emitWorkflowEvent(job.id, { type: 'done', status: 'error' });
+      return;
+    }
+  }
+
+  job.status = 'complete';
+  job.completedAt = Date.now();
+  emitWorkflowEvent(job.id, { type: 'done', status: 'complete' });
+}
+
+// POST /api/workflow/run — trigger a workflow execution
+app.post('/api/workflow/run', (req, res) => {
+  const { workflow, target, request } = req.body as { workflow?: string; target?: string; request?: string };
+
+  if (!target || !request) {
+    return res.status(400).json({ error: 'target and request are required' });
+  }
+
+  const workflowSlug = workflow || 'software-dev-process';
+  const steps = loadWorkflowSteps(workflowSlug);
+  if (!steps) {
+    return res.status(404).json({ error: `Workflow "${workflowSlug}" not found` });
+  }
+
+  // Validate target package exists in harness.yaml
+  const source = getPackageSource(target);
+  if (!source) {
+    return res.status(400).json({ error: `Package "${target}" has no source path configured in harness.yaml` });
+  }
+
+  const jobId = `wf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const job: WorkflowJob = {
+    id: jobId,
+    workflow: workflowSlug,
+    target,
+    request: request.slice(0, 2000), // cap request length for safety
+    status: 'queued',
+    currentPhase: '',
+    phases: steps.map(s => ({ name: s.name, status: 'pending' as const, instruction: s.instruction })),
+    logs: [],
+    startedAt: Date.now(),
+  };
+
+  workflowJobs.set(jobId, job);
+  workflowListeners.set(jobId, new Set());
+
+  // Run async — don't block the response
+  runWorkflowJob(job);
+
+  return res.status(202).json({ jobId, phases: job.phases.map(p => p.name) });
+});
+
+// GET /api/workflow/stream/:jobId — SSE stream with catch-up
+app.get('/api/workflow/stream/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const job = workflowJobs.get(jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  // Catch-up: replay current state
+  res.write(`data: ${JSON.stringify({ type: 'state', job: { ...job, logs: undefined } })}\n\n`);
+  for (const log of job.logs) {
+    res.write(`data: ${JSON.stringify({ type: 'log', phase: log.phase, text: log.text })}\n\n`);
+  }
+
+  if (job.status === 'complete' || job.status === 'error') {
+    res.write(`data: ${JSON.stringify({ type: 'done', status: job.status })}\n\n`);
+    res.end();
+    return;
+  }
+
+  // Subscribe to future events
+  const send = (data: string) => { res.write(data); };
+  const listeners = workflowListeners.get(jobId)!;
+  listeners.add(send);
+
+  req.on('close', () => {
+    listeners.delete(send);
+  });
+});
+
+// GET /api/workflow/jobs — list all jobs
+app.get('/api/workflow/jobs', (_req, res) => {
+  const jobs = Array.from(workflowJobs.values()).map(j => ({
+    id: j.id,
+    workflow: j.workflow,
+    target: j.target,
+    request: j.request,
+    status: j.status,
+    currentPhase: j.currentPhase,
+    phases: j.phases.map(p => ({ name: p.name, status: p.status })),
+    startedAt: j.startedAt,
+    completedAt: j.completedAt,
+    error: j.error,
+  }));
+  res.json(jobs);
+});
+
+// POST /api/workflow/cancel/:jobId — cancel a running job
+app.post('/api/workflow/cancel/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const job = workflowJobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status !== 'running' && job.status !== 'queued') {
+    return res.status(400).json({ error: 'Job is not running' });
+  }
+  job.status = 'error';
+  job.error = 'Cancelled by user';
+  job.completedAt = Date.now();
+  emitWorkflowEvent(jobId, { type: 'error', text: 'Cancelled by user' });
+  emitWorkflowEvent(jobId, { type: 'done', status: 'error' });
+  return res.json({ cancelled: true });
+});
+
+// --- MCP Connection Manager ---
+
+const mcpManager = new McpManager();
+
+mcpManager.on('connected', (slug: string, tools: unknown[]) => {
+  console.log(`[mcp] ${slug} connected (${tools.length} tools)`);
+  broadcast({ type: 'invalidate', queryKeys: [['mcp', 'status']] });
+});
+
+mcpManager.on('disconnected', (slug: string) => {
+  console.log(`[mcp] ${slug} disconnected`);
+  broadcast({ type: 'invalidate', queryKeys: [['mcp', 'status']] });
+});
+
+mcpManager.on('error', (slug: string, err: Error) => {
+  console.error(`[mcp] ${slug} error:`, err.message);
+});
+
+mcpManager.on('log', (slug: string, text: string) => {
+  console.log(`[mcp:${slug}]`, text);
+});
+
+function loadPackageManifest(manifestPath: string): PackageManifest | null {
+  const raw = safeReadFile(manifestPath);
+  if (!raw) return null;
+  try {
+    return yaml.load(raw) as PackageManifest;
+  } catch { return null; }
+}
+
+function getPackageManifestPath(slug: string): string | null {
+  const harnessYaml = parseYamlFile(path.join(HARNESS_PATH, 'harness.yaml')) as Record<string, unknown> | null;
+  const apps = harnessYaml?.apps as Record<string, Record<string, unknown>> | undefined;
+  if (!apps || !apps[slug]) return null;
+  return (apps[slug].package as string) ?? null;
+}
+
+async function bootMcpServers() {
+  const harnessYaml = parseYamlFile(path.join(HARNESS_PATH, 'harness.yaml')) as Record<string, unknown> | null;
+  const apps = harnessYaml?.apps as Record<string, Record<string, unknown>> | undefined;
+  if (!apps) return;
+
+  for (const [slug, config] of Object.entries(apps)) {
+    const manifestPath = config.package as string | undefined;
+    if (!manifestPath) continue;
+
+    const manifest = loadPackageManifest(manifestPath);
+    if (!manifest?.mcp) continue;
+
+    try {
+      await mcpManager.startServer(slug, manifest);
+    } catch (err) {
+      console.error(`[mcp] Failed to boot ${slug}:`, (err as Error).message);
+    }
+  }
+}
+
+// MCP proxy: call a tool on a connected MCP server
+app.post('/api/mcp/call', async (req, res) => {
+  const { server, tool, args } = req.body as { server: string; tool: string; args?: Record<string, unknown> };
+
+  if (!server || !tool) {
+    return res.status(400).json({ error: 'server and tool are required' });
+  }
+
+  const conn = mcpManager.getConnection(server);
+  if (!conn) {
+    // Try lazy start
+    const manifestPath = getPackageManifestPath(server);
+    if (manifestPath) {
+      const manifest = loadPackageManifest(manifestPath);
+      if (manifest?.mcp) {
+        try {
+          await mcpManager.startServer(server, manifest);
+        } catch (err) {
+          return res.status(503).json({ error: `Failed to start MCP server: ${(err as Error).message}` });
+        }
+      }
+    }
+
+    const retryConn = mcpManager.getConnection(server);
+    if (!retryConn || retryConn.status !== 'ready') {
+      return res.status(503).json({ error: `MCP server "${server}" not available` });
+    }
+  } else if (conn.status !== 'ready') {
+    return res.status(503).json({ error: `MCP server "${server}" not ready (status: ${conn.status})` });
+  }
+
+  try {
+    const result = await mcpManager.callTool(server, tool, args || {});
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// MCP status: list all connected servers and their tools
+app.get('/api/mcp/status', (_req, res) => {
+  const connections = mcpManager.getAllConnections().map(c => ({
+    slug: c.slug,
+    status: c.status,
+    tools: c.tools.map(t => ({ name: t.name, description: t.description })),
+    error: c.error,
+  }));
+  res.json({ connections });
+});
+
+// MCP tools: list tools for a specific server
+app.get('/api/mcp/tools/:server', (req, res) => {
+  const conn = mcpManager.getConnection(req.params.server);
+  if (!conn) return res.status(404).json({ error: 'Server not found' });
+  res.json({ tools: conn.tools, status: conn.status });
+});
+
 // --- File Watcher (chokidar) ---
 
 function pathToQueryKeys(filePath: string): string[][] {
@@ -420,4 +991,9 @@ if (fs.existsSync(distDir)) {
 server.listen(PORT, () => {
   const name = path.basename(HARNESS_PATH);
   console.log(`[${name}] http://localhost:${PORT}`);
+
+  // Boot MCP servers for installed packages
+  bootMcpServers().catch(err => {
+    console.error('[mcp] Boot error:', err.message);
+  });
 });

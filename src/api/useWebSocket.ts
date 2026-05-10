@@ -21,7 +21,7 @@ export function useWebSocket() {
       ws.onmessage = (e) => {
         try {
           const msg: WebSocketMessage = JSON.parse(e.data);
-          if (msg.type === 'invalidate' && msg.queryKeys) {
+          if ((msg.type === 'invalidate' || msg.type === 'workflow_progress') && msg.queryKeys) {
             for (const key of msg.queryKeys) {
               queryClient.invalidateQueries({ queryKey: key });
             }

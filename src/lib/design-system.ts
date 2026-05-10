@@ -42,6 +42,7 @@ export const osAppDock = [
   { id: 'knowledge', label: 'Knowledge', icon: 'knowledge' },
   { id: 'sessions',  label: 'Sessions',  icon: 'sessions'  },
   { id: 'cortex',    label: 'Cognitive',   icon: 'cortex'    },
+  { id: 'workflows', label: 'Workflows', icon: 'workflows' },
   { id: 'terminal',  label: 'Terminal',  icon: 'terminal'  },
   { id: 'agents',    label: 'Agents',    icon: 'agents'    },
   { id: 'settings',  label: 'Settings',  icon: 'settings'  },

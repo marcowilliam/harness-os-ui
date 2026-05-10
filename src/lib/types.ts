@@ -133,10 +133,28 @@ export interface HealthStatus {
     decisions: number;
     agents: number;
   };
+  apps?: Record<string, {
+    name?: string;
+    icon?: string;
+    color?: string;
+    description?: string;
+    knowledgeDomain?: string;
+    autoOpen?: boolean;
+  }>;
+  users?: Record<string, {
+    name?: string;
+    role?: string;
+    initials?: string;
+    color?: string;
+  }>;
+  instance?: {
+    user?: string;
+    shellPort?: number;
+  };
 }
 
 export interface WebSocketMessage {
-  type: 'invalidate' | 'ping' | 'event';
+  type: 'invalidate' | 'ping' | 'event' | 'workflow_progress';
   queryKeys?: string[][];
   event?: OsEvent;
 }
@@ -147,4 +165,38 @@ export interface OsEvent {
   project?: string;
   count?: number;
   timestamp: string;
+}
+
+export interface AssistantMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
+export interface PackageApp {
+  slug: string;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+  knowledgeDomain?: string;
+  autoOpen?: boolean;
+  mcp?: {
+    server: string;
+    status: 'disconnected' | 'connecting' | 'ready' | 'error';
+    tools: string[];
+  };
+  assistant?: {
+    systemPrompt: string;
+    placeholder: string;
+  };
+}
+
+export interface DistroUser {
+  slug: string;
+  name: string;
+  role: string;
+  initials: string;
+  color: string;
 }

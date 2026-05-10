@@ -21,6 +21,7 @@ export function Tray() {
   const activeProject  = useStore((s) => s.activeProject);
   const sessionTokens  = useStore((s) => s.sessionTokens);
   const sessionLearnings = useStore((s) => s.sessionLearnings);
+  const activeUser     = useStore((s) => s.activeUser);
   const { data: health } = useHealth();
   const time = useClock();
 
@@ -34,6 +35,23 @@ export function Tray() {
     >
       {/* ── Left zone ─────────────────────────────────── */}
       <div className="flex items-center gap-2.5 shrink-0">
+
+        {/* User avatar */}
+        {activeUser && (
+          <div
+            className="flex items-center justify-center rounded-full text-[9px] font-bold leading-none"
+            style={{
+              width: 22,
+              height: 22,
+              background: `${activeUser.color}25`,
+              color: activeUser.color,
+              border: `1px solid ${activeUser.color}40`,
+            }}
+            title={`${activeUser.name} (${activeUser.role})`}
+          >
+            {activeUser.initials}
+          </div>
+        )}
 
         {/* Distribution badge */}
         <span className="os-tray-badge">

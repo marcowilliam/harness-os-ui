@@ -90,3 +90,24 @@ export function useAgents() {
     queryFn: () => get('/api/mesh/agents'),
   });
 }
+
+export interface WorkflowJobSummary {
+  id: string;
+  workflow: string;
+  target: string;
+  request: string;
+  status: 'queued' | 'running' | 'complete' | 'error';
+  currentPhase: string;
+  phases: Array<{ name: string; status: string }>;
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
+}
+
+export function useWorkflowJobs() {
+  return useQuery<WorkflowJobSummary[]>({
+    queryKey: ['workflow', 'jobs'],
+    queryFn: () => get('/api/workflow/jobs'),
+    refetchInterval: 5000,
+  });
+}
