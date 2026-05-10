@@ -115,7 +115,6 @@ function parseMarkdown(md: string): TerminalLine[] {
 
 // ── Command handlers ───────────────────────────────────────────────────────
 
-const W1 = 36;
 // Two-tone row: sig is bright, desc is muted — rendered as two spans
 function row(sig: string, desc: string): TerminalLine {
   return { type: 'row', sig: `  ${sig}`, text: desc };
@@ -451,13 +450,13 @@ async function handleConfig(): Promise<TerminalLine[]> {
     { type: 'output', text: `  HARNESS_PATH=${data.harnessPath as string}` },
     { type: 'output', text: `  SCALE=1` },
     ...(active.length ? [
-      { type: 'divider', text: '' },
-      { type: 'system',  text: '  active capabilities:' },
+      { type: 'divider' as const, text: '' },
+      { type: 'system' as const,  text: '  active capabilities:' },
       ...active.map(c => ({ type: 'output' as const, text: `    + ${c}` })),
     ] : []),
     ...(available.length ? [
-      { type: 'divider', text: '' },
-      { type: 'system',  text: '  available (not yet mounted):' },
+      { type: 'divider' as const, text: '' },
+      { type: 'system' as const,  text: '  available (not yet mounted):' },
       ...available.map(c => ({ type: 'output' as const, text: `    ~ ${c.capability}  [signal: ${c.signal}]` })),
     ] : []),
   ];

@@ -87,12 +87,12 @@ function AppWindow({ appId }: { appId: AppId }) {
         }}
       >
         {/* Traffic lights */}
-        <div className="traffic-lights shrink-0">
+        <div className="traffic-lights shrink-0" style={{ position: 'relative', zIndex: 50 }}>
           <button
             type="button"
             className="traffic-light traffic-light-close"
-            style={{ pointerEvents: 'auto' }}
-            onClick={(e) => { e.stopPropagation(); closeApp(appId); }}
+            style={{ pointerEvents: 'auto', position: 'relative', zIndex: 51 }}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); closeApp(appId); }}
             title="Close"
           />
           <div className="traffic-light traffic-light-inert" title="Minimize (use dock)" />

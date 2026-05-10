@@ -218,6 +218,13 @@
     border: none;
     padding: 0;
     flex-shrink: 0;
+    position: relative;
+  }
+  .traffic-light-close::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
   }
   .traffic-light:hover {
     filter: brightness(1.2);
